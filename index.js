@@ -1,4 +1,5 @@
 /* global AFRAME, THREE */
+var bind = AFRAME.utils.bind;
 
 if (typeof AFRAME === 'undefined') {
   throw new Error('Component attempted to register before AFRAME was available.');
@@ -18,48 +19,33 @@ var STATES = {
 };
 
 /**
- * Vive cursor component. A modification of the default cursor.
- * Cursor can be fine-tuned by setting raycaster properties.
+ * Controller cursor component.
  *
- * @member {Element} mouseDownEl - Entity that was last mousedowned during current click.
+ * @member {Element} triggerDownEl - Entity that was last clicked.
+ * @member {object} intersection - Attributes of the current intersection event, including
+ *         3D- and 2D-space coordinates. See: http://threejs.org/docs/api/core/Raycaster.html
  * @member {Element} intersectedEl - Currently-intersected entity. Used to keep track to
  *         emit events when unintersecting.
  */
-AFRAME.registerComponent('vive-cursor', {
+AFRAME.registerComponent('controller-cursor', {
   dependencies: ['raycaster'],
+
   schema: {
-    color: {
-      type: 'color',
-      default: 0x0000ff
-    },
-    radius: {
-      type: 'number',
-      default: '0.001'
-    },
-    objects: {
-      type: 'string',
-      default: ''
-    }
+    color: {default: '#74BEC1'},
+    radius: {default: 0.001}
   },
 
-  /**
-   * Set if component needs multiple instancing.
-   */
-  multiple: false,
-
-  /**
-   * Called once when component is attached. Generally for initial setup.
-   */
   init: function () {
     var cursorEl = this.el;
     var data = this.data;
-    var canvas = cursorEl.sceneEl.canvas;
-    this.mouseDownEl = null;
+    this.triggerDownEl = null;
+    this.intersection = null;
     this.intersectedEl = null;
 
     // Wait for canvas to load.
+    var canvas = cursorEl.sceneEl.canvas;
     if (!canvas) {
-      cursorEl.sceneEl.addEventListener('render-target-loaded', this.init.bind(this));
+      cursorEl.sceneEl.addEventListener('render-target-loaded', bind(this.init, this));
       return;
     }
 
@@ -67,48 +53,51 @@ AFRAME.registerComponent('vive-cursor', {
     var cursorGeometry = new THREE.CylinderGeometry(data.radius, data.radius, 1000, 32);
     var cursorMaterial = new THREE.MeshBasicMaterial({color: data.color});
     var cursorMesh = new THREE.Mesh(cursorGeometry, cursorMaterial);
-    // Move mesh so that beam starts at the tip of the controller model.
+    // Move mesh so beam starts at tip of controller model.
     cursorMesh.position.z = -500;
-    // Rotate mesh so that it points directly away from the controller.
+    // Rotate mesh to point directly away from controller model.
     cursorMesh.rotation.x = 90 * (Math.PI / 180);
-    this.el.setObject3D('vive-cursor-mesh', cursorMesh);
+    cursorEl.setObject3D('cursormesh', cursorMesh);
 
     // Prevent laser from interfering with raycaster by setting near property
-    var rayCasterSettings = 'near: 0.03; objects: ' + data.objects;
-    cursorEl.setAttribute('raycaster', rayCasterSettings);
+    cursorEl.setAttribute('raycaster', {near: 0.03});
 
-    // Save event listener bindings (needed for removal).
-    this.onIntersectionBind = this.onIntersection.bind(this);
-    this.onIntersectionClearedBind = this.onIntersectionCleared.bind(this);
-    this.onMouseDownBind = this.onMouseDown.bind(this);
-    this.onMouseUpBind = this.onMouseUp.bind(this);
+    // Bind methods.
+    this.onIntersectionBind = bind(this.onIntersection, this);
+    this.onIntersectionClearedBind = bind(this.onIntersectionCleared, this);
+    this.onTriggerDownBind = bind(this.onTriggerDown, this);
+    this.onTriggerUpBind = bind(this.onTriggerUp, this);
   },
 
-  attachEventListeners: function () {
+  /**
+   * Add event listeners.
+   */
+  play: function () {
     var cursorEl = this.el;
-
     cursorEl.addEventListener('raycaster-intersection', this.onIntersectionBind);
-    cursorEl.addEventListener('raycaster-intersection-cleared', this.onIntersectionClearedBind);
-    // Mouseup/down mapped to trigger.
-    cursorEl.addEventListener('triggerdown', this.onMouseDownBind);
-    cursorEl.addEventListener('triggerup', this.onMouseUpBind);
+    cursorEl.addEventListener('raycaster-intersection-cleared',
+                              this.onIntersectionClearedBind);
+    cursorEl.addEventListener('triggerdown', this.onTriggerDownBind);
+    cursorEl.addEventListener('triggerup', this.onTriggerUpBind);
   },
 
-  removeEventListeners: function () {
-    var cursorEl = this.el;
-
+  /**
+   * Remove event listeners.
+   */
+  pause: function () {
     cursorEl.removeEventListener('raycaster-intersection', this.onIntersectionBind);
-    cursorEl.removeEventListener('raycaster-intersection-cleared', this.onIntersectionClearedBind);
-    cursorEl.removeEventListener('triggerdown', this.onMouseDownBind);
-    cursorEl.removeEventListener('triggerup', this.onMouseUpBind);
+    cursorEl.removeEventListener('raycaster-intersection-cleared',
+                                 this.onIntersectionClearedBind);
+    cursorEl.removeEventListener('triggerdown', this.onTriggerDownBind);
+    cursorEl.removeEventListener('triggerup', this.onTriggerUpBind);
   },
 
   /**
    * Trigger mousedown and keep track of the mousedowned entity.
    */
-  onMouseDown: function (evt) {
+  onTriggerDown: function (evt) {
     this.twoWayEmit(EVENTS.MOUSEDOWN);
-    this.mouseDownEl = this.intersectedEl;
+    this.triggerDownEl = this.intersectedEl;
   },
 
   /**
@@ -117,9 +106,9 @@ AFRAME.registerComponent('vive-cursor', {
    * - Currently-intersected entity is the same as the one when mousedown was triggered,
    *   in case user mousedowned one entity, dragged to another, and mouseupped.
    */
-  onMouseUp: function () {
+  onTriggerUp: function (evt) {
     this.twoWayEmit(EVENTS.MOUSEUP);
-    if (!this.intersectedEl || this.mouseDownEl !== this.intersectedEl) { return; }
+    if (!this.intersectedEl || this.triggerDownEl !== this.intersectedEl) { return; }
     this.twoWayEmit(EVENTS.CLICK);
   },
 
@@ -129,10 +118,29 @@ AFRAME.registerComponent('vive-cursor', {
   onIntersection: function (evt) {
     var self = this;
     var cursorEl = this.el;
-    var intersectedEl = evt.detail.els[0];  // Grab the closest.
+    var index;
+    var intersectedEl;
+    var intersection;
 
-    // Set intersected entity if not already intersecting.
-    if (this.intersectedEl === intersectedEl) { return; }
+    // Select closest object, excluding the cursor.
+    index = evt.detail.els[0] === cursorEl ? 1 : 0;
+    intersection = evt.detail.intersections[index];
+    intersectedEl = evt.detail.els[index];
+
+    // If cursor is the only intersected object, ignore the event.
+    if (!intersectedEl) { return; }
+
+    // Already intersecting this entity.
+    if (this.intersectedEl === intersectedEl) {
+      this.intersection = intersection;
+      return;
+    }
+
+    // Unset current intersection.
+    if (this.intersectedEl) { this.clearCurrentIntersection(); }
+
+    // Set new intersection.
+    this.intersection = intersection;
     this.intersectedEl = intersectedEl;
 
     // Hovering.
@@ -148,15 +156,25 @@ AFRAME.registerComponent('vive-cursor', {
     var cursorEl = this.el;
     var intersectedEl = evt.detail.el;
 
-    // Not intersecting.
-    if (!intersectedEl || !this.intersectedEl) { return; }
+    // Ignore the cursor.
+    if (cursorEl === intersectedEl) { return; }
+
+    // Ignore if the event didn't occur on the current intersection.
+    if (intersectedEl !== this.intersectedEl) { return; }
+
+    this.clearCurrentIntersection();
+  },
+
+  clearCurrentIntersection: function () {
+    var cursorEl = this.el;
 
     // No longer hovering.
-    intersectedEl.removeState(STATES.HOVERED);
+    this.intersectedEl.removeState(STATES.HOVERED);
     cursorEl.removeState(STATES.HOVERING);
     this.twoWayEmit(EVENTS.MOUSELEAVE);
 
     // Unset intersected entity (after emitting the event).
+    this.intersection = null;
     this.intersectedEl = null;
   },
 
@@ -164,42 +182,11 @@ AFRAME.registerComponent('vive-cursor', {
    * Helper to emit on both the cursor and the intersected entity (if exists).
    */
   twoWayEmit: function (evtName) {
+    var el = this.el;
     var intersectedEl = this.intersectedEl;
-    this.el.emit(evtName, {intersectedEl: this.intersectedEl});
+    var intersection = this.intersection;
+    el.emit(evtName, {intersectedEl: intersectedEl, intersection: intersection});
     if (!intersectedEl) { return; }
-    intersectedEl.emit(evtName, {cursorEl: this.el});
-  },
-
-  /**
-   * Called when a component is removed (e.g., via removeAttribute).
-   * Generally undoes all modifications to the entity.
-   */
-  remove: function () {
-    var cursorEl = this.el;
-
-    // Remove laser beam mesh.
-    cursorEl.removeObject3D('vive-cursor-mesh');
-
-    // Remove event listeners.
-    this.removeEventListeners();
-
-    // Remove raycaster.
-    cursorEl.removeAttribute('raycaster');
-  },
-
-  /**
-   * Called when entity pauses.
-   * Use to stop or remove any dynamic or background behavior such as events.
-   */
-  pause: function () {
-    this.removeEventListeners();
-  },
-
-  /**
-   * Called when entity resumes.
-   * Use to continue or add any dynamic or background behavior such as events.
-   */
-  play: function () {
-    this.attachEventListeners();
+    intersectedEl.emit(evtName, {cursorEl: el, intersection: intersection});
   }
 });

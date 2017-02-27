@@ -1,15 +1,14 @@
 <html>
   <head>
-    <title>A-Frame Vive Cursor Component - Basic</title>
+    <title>A-Frame Controller Cursor Component - Basic</title>
     <script src="../build.js"></script>
     <script src="https://d3js.org/d3.v4.min.js"></script>
   </head>
   <body>
     <a-scene>
-
       <!-- Cursor applied to right-hand controller -->
       <a-entity vive-controls="hand: left"></a-entity>
-      <a-entity vive-controls="hand: right" vive-cursor></a-entity>
+      <a-entity vive-controls="hand: right" controller-cursor></a-entity>
 
        <a-sphere id="sphere" position="0 2.25 -5" radius="1.25" color="#EF2D5E"></a-sphere>
        <a-plane rotation="-90 0 0" width="4" height="4" color="#7BC8A4"></a-plane>
